@@ -160,57 +160,50 @@ def generar_local(tema):
         "libro_sagrado": "",
     }
 
-def wrap_fit(draw, text, font_path, max_w, start_size, min_size=16):
+def calcular_lineas(draw, text, font, max_w):
+    """Divide el texto en líneas que caben en max_w con la font dada."""
+    palabras = text.split(" ")
+    lineas = []
+    linea_actual = ""
+    for palabra in palabras:
+        prueba = (linea_actual + " " + palabra).strip()
+        bbox = draw.textbbox((0, 0), prueba, font=font)
+        if bbox[2] - bbox[0] > max_w:
+            if linea_actual:
+                lineas.append(linea_actual)
+                linea_actual = ""
+            bbox_palabra = draw.textbbox((0, 0), palabra, font=font)
+            if bbox_palabra[2] - bbox_palabra[0] <= max_w:
+                linea_actual = palabra
+            else:
+                for char in palabra:
+                    prueba_char = linea_actual + char
+                    bbox_char = draw.textbbox((0, 0), prueba_char, font=font)
+                    if bbox_char[2] - bbox_char[0] > max_w:
+                        if linea_actual:
+                            lineas.append(linea_actual)
+                        linea_actual = char
+                    else:
+                        linea_actual = prueba_char
+        else:
+            linea_actual = prueba
+    if linea_actual:
+        lineas.append(linea_actual)
+    return lineas
+
+def wrap_fit(draw, text, font_path, max_w, start_size, min_size=16, max_lines=None):
     size = start_size
     while size > min_size:
         font = ImageFont.truetype(font_path, size)
-        
-        # Intenta dividir en líneas
-        palabras = text.split(" ")
-        lineas_prueba = []
-        linea_actual = ""
-        
-        for palabra in palabras:
-            prueba = (linea_actual + " " + palabra).strip()
-            bbox = draw.textbbox((0, 0), prueba, font=font)
-            
-            if bbox[2] - bbox[0] > max_w:
-                # No cabe con la palabra actual
-                if linea_actual:
-                    lineas_prueba.append(linea_actual)
-                    linea_actual = ""
-                
-                # Ahora intenta meter solo la palabra
-                bbox_palabra = draw.textbbox((0, 0), palabra, font=font)
-                if bbox_palabra[2] - bbox_palabra[0] <= max_w:
-                    # La palabra cabe sola
-                    linea_actual = palabra
-                else:
-                    # La palabra es demasiado larga, romper por caracteres
-                    for i, char in enumerate(palabra):
-                        prueba_char = linea_actual + char
-                        bbox_char = draw.textbbox((0, 0), prueba_char, font=font)
-                        if bbox_char[2] - bbox_char[0] > max_w:
-                            if linea_actual:
-                                lineas_prueba.append(linea_actual)
-                            linea_actual = char
-                        else:
-                            linea_actual = prueba_char
-            else:
-                linea_actual = prueba
-        
-        if linea_actual:
-            lineas_prueba.append(linea_actual)
-        
-        # Verifica que TODAS las líneas caben
-        todas_caben = True
-        for linea in lineas_prueba:
-            bbox = draw.textbbox((0, 0), linea, font=font)
-            if bbox[2] - bbox[0] > max_w:
-                todas_caben = False
-                break
-        
-        if todas_caben:
+        lineas_prueba = calcular_lineas(draw, text, font, max_w)
+
+        todas_caben = all(
+            draw.textbbox((0, 0), l, font=font)[2] - draw.textbbox((0, 0), l, font=font)[0] <= max_w
+            for l in lineas_prueba
+        )
+        cabe_en_lineas = max_lines is None or len(lineas_prueba) <= max_lines
+
+        if todas_caben and cabe_en_lineas:
             return font
         size -= 2
     return ImageFont.truetype(font_path, min_size)
@@ -224,40 +217,16 @@ def dibujar(contenido, paleta):
     d.text((M, 150), "Sin dinero real", font=ImageFont.truetype(sans, 26), fill=accent)
 
     nombre = contenido["nombre"]
-    palabras = nombre.split(" ")
-    f_nombre = wrap_fit(d, nombre, serifB, W - 2*M, 80)
+    f_nombre = wrap_fit(d, nombre, serifB, W - 2*M, 80, max_lines=3)
     y = 220
-    linea = ""
-    lineas = []
-    for w_ in palabras:
-        prueba = (linea + " " + w_).strip()
-        bbox = d.textbbox((0, 0), prueba, font=f_nombre)
-        if bbox[2] - bbox[0] > W - 2*M and linea:
-            lineas.append(linea)
-            linea = w_
-        else:
-            linea = prueba
-    if linea:
-        lineas.append(linea)
+    lineas = calcular_lineas(d, nombre, f_nombre, W - 2*M)
     for l in lineas[:3]:
         d.text((M, y), l, font=f_nombre, fill=ink)
         y += int(f_nombre.size * 1.1)
 
     y += 120
-    f_eslogan = wrap_fit(d, contenido["eslogan"], serifB, W - 2*M, 100)
-    palabras = contenido["eslogan"].split(" ")
-    linea = ""
-    lineas = []
-    for w_ in palabras:
-        prueba = (linea + " " + w_).strip()
-        bbox = d.textbbox((0, 0), prueba, font=f_eslogan)
-        if bbox[2] - bbox[0] > W - 2*M and linea:
-            lineas.append(linea)
-            linea = w_
-        else:
-            linea = prueba
-    if linea:
-        lineas.append(linea)
+    f_eslogan = wrap_fit(d, contenido["eslogan"], serifB, W - 2*M, 100, max_lines=4)
+    lineas = calcular_lineas(d, contenido["eslogan"], f_eslogan, W - 2*M)
     for l in lineas[:4]:
         d.text((M, y), l, font=f_eslogan, fill=accent)
         y += int(f_eslogan.size * 1.1)
@@ -265,19 +234,7 @@ def dibujar(contenido, paleta):
     y += 100
     detalle = contenido.get("detalle", "")
     f_detalle = wrap_fit(d, detalle, sans, W - 2*M, 28)
-    palabras_det = detalle.split(" ")
-    linea = ""
-    lineas = []
-    for w_ in palabras_det:
-        prueba = (linea + " " + w_).strip()
-        bbox = d.textbbox((0, 0), prueba, font=f_detalle)
-        if bbox[2] - bbox[0] > W - 2*M and linea:
-            lineas.append(linea)
-            linea = w_
-        else:
-            linea = prueba
-    if linea:
-        lineas.append(linea)
+    lineas = calcular_lineas(d, detalle, f_detalle, W - 2*M)
     for l in lineas:
         d.text((M, y), l, font=f_detalle, fill=ink)
         y += int(f_detalle.size * 1.2)
@@ -287,19 +244,7 @@ def dibujar(contenido, paleta):
     y += 80
     for p in contenido.get("puntos", [])[:3]:
         f_p = wrap_fit(d, p, sans, W - 2*M, 28)
-        palabras_p = p.split(" ")
-        linea = ""
-        lineas = []
-        for w_ in palabras_p:
-            prueba = (linea + " " + w_).strip()
-            bbox = d.textbbox((0, 0), prueba, font=f_p)
-            if bbox[2] - bbox[0] > W - 2*M and linea:
-                lineas.append(linea)
-                linea = w_
-            else:
-                linea = prueba
-        if linea:
-            lineas.append(linea)
+        lineas = calcular_lineas(d, p, f_p, W - 2*M)
         for l in lineas:
             d.text((M, y), l, font=f_p, fill=ink)
             y += int(f_p.size * 1.2)
@@ -310,19 +255,7 @@ def dibujar(contenido, paleta):
     y += 65
     mandamiento = contenido["mandamiento"]
     f_mand = wrap_fit(d, mandamiento, serifB, W - 2*M, 44)
-    palabras_mand = mandamiento.split(" ")
-    linea = ""
-    lineas = []
-    for w_ in palabras_mand:
-        prueba = (linea + " " + w_).strip()
-        bbox = d.textbbox((0, 0), prueba, font=f_mand)
-        if bbox[2] - bbox[0] > W - 2*M and linea:
-            lineas.append(linea)
-            linea = w_
-        else:
-            linea = prueba
-    if linea:
-        lineas.append(linea)
+    lineas = calcular_lineas(d, mandamiento, f_mand, W - 2*M)
     for l in lineas:
         d.text((M, y), l, font=f_mand, fill=ink)
         y += int(f_mand.size * 1.2)
@@ -361,6 +294,7 @@ def enviar_telegram(imagen_path):
             img_data = img_file.read()
         print(f"DEBUG: Image size: {len(img_data)} bytes")
         
+        import urllib.parse
         boundary = '----WebKitFormBoundary7MA4YWxkTrZu0gW'
         body = f'--{boundary}\r\nContent-Disposition: form-data; name="chat_id"\r\n\r\n{chat_id}\r\n--{boundary}\r\nContent-Disposition: form-data; name="photo"; filename="religion.png"\r\nContent-Type: image/png\r\n\r\n'.encode()
         body += img_data
@@ -373,8 +307,6 @@ def enviar_telegram(imagen_path):
         with urllib.request.urlopen(req, timeout=30) as resp:
             result = json.loads(resp.read().decode())
             print(f"✓ Telegram OK: {result.get('ok')}")
-    except urllib.error.HTTPError as e:
-        print(f"❌ Error Telegram HTTP {e.code}: {e.read().decode()}")
     except Exception as e:
         print(f"❌ Error: {type(e).__name__}: {e}")
 
@@ -389,7 +321,7 @@ def main():
     slug = slugify(contenido["nombre"])
     path = os.path.join(OUT_DIR, f"{fecha}-{slug}.png")
     img.save(path)
-    print(json.dumps({"path": path, "contenido": contenido}, ensure_ascii=False, indent=2), flush=True)
+    print(json.dumps({"path": path, "contenido": contenido}, ensure_ascii=False, indent=2))
     
     # Enviar a Telegram
     enviar_telegram(path)
